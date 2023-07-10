@@ -9,24 +9,17 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Laravel\Lumen\Auth\Authorizable;
 
-class User extends Model implements AuthenticatableContract, AuthorizableContract
+class CodigosTransacoes extends Model implements AuthenticatableContract, AuthorizableContract
 {
     use Authenticatable, Authorizable, HasFactory;
 
     /**
      * The attributes that are mass assignable.
-     *
+     * 
      * @var string[]
      */
 
-    protected $fillable = [
-        'nome', 'data_nascimento', 'cpf', 'email', 'senha', 'endereco_cobranca_id'];
-    /**
-     * The attributes excluded from the model's JSON form.
-     *
-     * @var string[]
-     */
-    // protected $hidden = [
-    //     'senha',
-    // ];
+     protected $fillable = [
+        'tipo', 'codigo', 
+        'numero_conta_origem', 'data_expiracao'];
 }

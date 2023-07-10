@@ -1,4 +1,7 @@
-final class TipoTransacao extends Enum{
+<?php
+namespace App\Enums;
+
+enum TipoTransacao{
     const Deposito = 0;
-    const Tranferencia = 1;
+    const Transferencia = 1;
 }

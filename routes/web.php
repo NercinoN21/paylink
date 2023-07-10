@@ -38,9 +38,15 @@ $router->group(['prefix' => 'endereco'], function() use ($router) {
     $router->post('/', 'EnderecoController@createEndereco');
 });
 
+$router->group(['prefix' => 'transacao'], function() use ($router) {
+    $router->get('/', 'TransacaoController@listAll');
+    $router->post('/SolicitarCodigo', 'TransacaoController@createCodigo');
+    $router->post('/deposito', 'TransacaoController@createDeposito');
+    $router->post('/transferencia', 'TransacaoController@createTransferencia');
+});
+
 $router->get('/conta', 'ContaController@listAll');
 $router->get('/agencia', 'AgenciaController@listAll');
-$router->get('/transacao', 'TransacaoController@listAll'); //TODO: Criar grup para deposito e transferencia
-
 
 $router->post('/login', 'AuthController@login');
+$router->get('/CodigoTransacao', 'CodigoTransacaoController@listAll');
