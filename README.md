@@ -1,26 +1,109 @@
-# Lumen PHP Framework
+# PayLink - Api Rest
 
-[![Build Status](https://travis-ci.org/laravel/lumen-framework.svg)](https://travis-ci.org/laravel/lumen-framework)
-[![Total Downloads](https://img.shields.io/packagist/dt/laravel/lumen-framework)](https://packagist.org/packages/laravel/lumen-framework)
+
 [![Latest Stable Version](https://img.shields.io/packagist/v/laravel/lumen-framework)](https://packagist.org/packages/laravel/lumen-framework)
 [![License](https://img.shields.io/packagist/l/laravel/lumen)](https://packagist.org/packages/laravel/lumen-framework)
 
-Laravel Lumen is a stunningly fast PHP micro-framework for building web applications with expressive, elegant syntax. We believe development must be an enjoyable, creative experience to be truly fulfilling. Lumen attempts to take the pain out of development by easing common tasks used in the majority of web projects, such as routing, database abstraction, queueing, and caching.
+API REST em PHP utilizando o framework Laravel/Lumen e PHP 8.2. 
 
-> **Note:** In the years since releasing Lumen, PHP has made a variety of wonderful performance improvements. For this reason, along with the availability of [Laravel Octane](https://laravel.com/docs/octane), we no longer recommend that you begin new projects with Lumen. Instead, we recommend always beginning new projects with [Laravel](https://laravel.com).
+## Run
 
-## Official Documentation
+> php -S 127.0.0.1:8000 -t public
 
-Documentation for the framework can be found on the [Lumen website](https://lumen.laravel.com/docs).
+## Modelos de dados
+ * agencias 
+ * autenticacao_tokens
+ * transacoes 
+ * contas
+ * codigos_transacoes
+ * users
+ * enderecos
+ * auth_tokens 
 
-## Contributing
+# Rotas
 
-Thank you for considering contributing to Lumen! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## POST - /login
 
-## Security Vulnerabilities
+### request 
+    {
+        "email": "admin@example.com",
+        "password": "admin123"
+    }
+### response
+    {
+        "token": "...",
+    }
 
-If you discover a security vulnerability within Lumen, please send an e-mail to Taylor Otwell at taylor@laravel.com. All security vulnerabilities will be promptly addressed.
+> ***Observação:*** Ao efetuar o login, verifica-se se o usuário existe na base de dados a partir do email. Se tudo ocorrer bem, um token é gerado a partir do email e da data atual, sendo salvo na tabela "autenticacao_tokens".
+
+> ***Observação:*** Todas as rotas, com exceção do login, requerem o envio do token no cabeçalho da requisição.
+
+> ***Exemplo:*** Authorization: token...
+
+## Transação Bancaria
+
+Para realizar uma transação bancária de depósito ou transferência, é necessário obter um código de transação. O código pode ser formado das seguintes formas: DEP0000 ou TRANSF0000. Para solicitar o código, é necessário enviar os dados de e-mail e senha, informar o tipo de transação e o número da conta de origem. Se estiver tudo certo, ele retornará um código de transação válido. Esse código será armazenado no banco de dados com a data de expiração.
+
+> ***Observação:*** Em todas as transações de depósito ou transferência, o código deve ser informado.
+
+## Rotas de Transação
+
+### POST - /transacao/SolicitarCodigo
+
+### request 
+    {
+        "email": "admin@example.com",
+        "password": "admin123"
+        "tipoTrasacao": 1,
+        "numeroContaOrigem": "2613821813"
+    }
+### response
+    {
+    "Codigo": "TRANSF8803"
+    }
+
+### POST - /transacao/deposito
+
+### request 
+    {
+        "numeroContaDestino": "1111111111", 
+        "valor": 50.00,
+        "codigoTrasacao":"DEP3538"
+    }
+### response
+    {
+    "Sucesso": "Mensagem de sucesso"
+    }
+
+### POST - /transacao/transferencia
+
+### request 
+    {
+        "numeroContaDestino": "1111111111", 
+        "valor": 50.00,
+        "codigoTrasacao":"TRANSF3538"
+    }
+### response
+    {
+    "Sucesso": "Mensagem de sucesso"
+    }
+
+> ***Observação:*** Lembre-se de passar o token de login para acessar as rotas.
+
+
+## Demais Rotas
+
+* **Get** /users/
+* **Get** /users/{id}
+* **Post** /users/
+* **Put** /users/{id}
+* **Delete** /users/{id}
+* **Get** /endereco/
+* **Post** /endereco/
+* **Get** /conta/
+* **Get** /agencia/
+* **Get** /CodigoTransacao/
 
 ## License
 
-The Lumen framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+O Paylink esta licenciado sob a [MIT license](https://opensource.org/licenses/MIT).

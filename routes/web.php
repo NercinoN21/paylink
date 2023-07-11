@@ -27,24 +27,12 @@ $router->group(['prefix' => 'users'], function() use ($router) {
     $router->post('/', 'UsersController@createUser');
     $router->put('/{id}', 'UsersController@updateUser');
     $router->delete('/{id}', 'UsersController@deleteUser');
-
-    /*
-        Recurso: Usuarios (users)
-        endpoint: /users (usuarios)
-        Verbos: GET, POST, PUT/PATCH, DELETE
-     */
 });
 
 
 $router->group(['prefix' => 'endereco'], function() use ($router) {
     $router->get('/', 'EnderecoController@listAll');
     $router->post('/', 'EnderecoController@createEndereco');
-
-        /*
-        Recurso: endereco (users)
-        endpoint: / (usuarios)
-        Verbos: GET, POST, PUT/PATCH, DELETE
-     */
 });
 
 $router->group(['prefix' => 'transacao'], function() use ($router) {
