@@ -17,12 +17,16 @@ use App\Enums\TipoTransacao;
 
 use Carbon\Carbon;
 
+use App\Http\Auth\AuthTokenException;
+use App\Http\Auth\AuthTokenService;
+
 
 class TransacaoController extends Controller
 {
     
     private  $transacao;
     private $codigoTransacao;
+    private  $authTokenService;
 
     const QTDE_MAX_TENTAIVA = 50;
     const TEMPO_EXPIRACAO_CODIGO_MINUTOS = 30;
@@ -34,248 +38,273 @@ class TransacaoController extends Controller
      */
 
 
-    public function __construct(Transacoes $transacao, CodigosTransacoes $codigoTransacao)
+    public function __construct(Transacoes $transacao, 
+                                CodigosTransacoes $codigoTransacao,
+                                AuthTokenService $authTokenService)
     {
         $this->transacao = $transacao;
         $this->codigoTransacao = $codigoTransacao;
+        $this->authTokenService = $authTokenService;
     }
 
 
 
-    public function listAll()
+    public function listAll(Request $request)
     {
-        return $this->transacao->paginate(10);
+        try{
+            $token = $request->header('Authorization');
+            $this->authTokenService->validar($token);
+            return $this->transacao->paginate(10);
+        }catch(AuthTokenException $e){
+            return response()->json(['error' => $e->getMessage()], 401);
+        }
     }
 
     public function createCodigo(Request $request)
     {
-        $resquestCreateCodigo = $request->only(
-            ['email', 'senha', 
-            'tipoTrasacao', 'numeroContaOrigem']);
+        try{
+            $token = $request->header('Authorization');
+            $this->authTokenService->validar($token);
+            $resquestCreateCodigo = $request->only(
+                ['email', 'senha', 
+                'tipoTrasacao', 'numeroContaOrigem']);
 
-        $user = User::where('email', $resquestCreateCodigo['email'])->first();
+            $user = User::where('email', $resquestCreateCodigo['email'])->first();
 
+            if (!$user || password_verify($resquestCreateCodigo['senha'], $user->senha)) {
+                
+                return response()->json(['error' => 'Credenciais invalidas'], 401);
+            }
 
-        if (!$user || strcmp($resquestCreateCodigo['senha'], $user->senha)) {
-            
-            return response()->json(['error' => 'Credenciais invalidas'], 401);
-        }
+            $contaOrigem = Conta::where('numero', $resquestCreateCodigo['numeroContaOrigem'])->first();
 
-        $contaOrigem = Conta::where('numero', $resquestCreateCodigo['numeroContaOrigem'])->first();
+            if(!$contaOrigem)
+            {
+                return response()->json(['error' => 'Numero da conta invalido'], 401);
+            }
 
-        if(!$contaOrigem)
-        {
-            return response()->json(['error' => 'Numero da conta invalido'], 401);
-        }
+            // Gerar código de 4 dígitos
+            $tentativas  = 0;
+            $codigo = '';
+            $currentDate = Carbon::now();
+            do {
+                $codigo = mt_rand(1000, 9999);
 
-        // Gerar código de 4 dígitos
-        $tentativas  = 0;
-        $codigo = '';
-        $currentDate = Carbon::now();
-        do {
-            $codigo = mt_rand(1000, 9999);
+                $exists = CodigosTransacoes
+                ::where('codigo', $codigo)
+                ->where('data_expiracao', '<', $currentDate)
+                ->exists();
+                $tentativas++;
+            } while ($exists && $tentativas <=  self::QTDE_MAX_TENTAIVA);
 
-            $exists = CodigosTransacoes
-            ::where('codigo', $codigo)
-            ->where('data_expiracao', '<', $currentDate)
-            ->exists();
-            $tentativas++;
-        } while ($exists && $tentativas <=  self::QTDE_MAX_TENTAIVA);
+            if($tentativas >=  self::QTDE_MAX_TENTAIVA){
+                return response()->json(['Error' => 'Codigo temporariamente indisponivel. Tente mais tarde!'], 200);
+            }
 
-        if($tentativas >=  self::QTDE_MAX_TENTAIVA){
-            return response()->json(['Error' => 'Codigo temporariamente indisponivel. Tente mais tarde!'], 200);
-        }
+            if($resquestCreateCodigo['tipoTrasacao'] == TipoTransacao::Deposito)
+            {
+                $codigo = 'DEP'.$codigo;
+            } else if ($resquestCreateCodigo['tipoTrasacao'] == TipoTransacao::Transferencia){
+                $codigo = 'TRANSF'.$codigo;
+            }
 
-        if($resquestCreateCodigo['tipoTrasacao'] == TipoTransacao::Deposito)
-        {
-            $codigo = 'DEP'.$codigo;
-        } else if ($resquestCreateCodigo['tipoTrasacao'] == TipoTransacao::Transferencia){
-            $codigo = 'TRANSF'.$codigo;
-        }
-
-        $dataExpiracao = $currentDate->addMinutes(self::TEMPO_EXPIRACAO_CODIGO_MINUTOS);
-      
-        $novoCodigoTrasacao['tipo'] = $resquestCreateCodigo['tipoTrasacao'];
-        $novoCodigoTrasacao['codigo'] = $codigo;
-        $novoCodigoTrasacao['numero_conta_origem'] = $contaOrigem['numero'];
-        $novoCodigoTrasacao['data_expiracao'] = $dataExpiracao;
+            $dataExpiracao = $currentDate->addMinutes(self::TEMPO_EXPIRACAO_CODIGO_MINUTOS);
         
-        $this->codigoTransacao->create($novoCodigoTrasacao);
+            $novoCodigoTrasacao['tipo'] = $resquestCreateCodigo['tipoTrasacao'];
+            $novoCodigoTrasacao['codigo'] = $codigo;
+            $novoCodigoTrasacao['numero_conta_origem'] = $contaOrigem['numero'];
+            $novoCodigoTrasacao['data_expiracao'] = $dataExpiracao;
+            
+            $this->codigoTransacao->create($novoCodigoTrasacao);
 
-        return response()->json(['Codigo' => $codigo], 200);
+            return response()->json(['Codigo' => $codigo], 200);
+        }catch(AuthTokenException $e){
+            return response()->json(['error' => $e->getMessage()], 401);
+        }
     }
 
 
     public function createDeposito(Request $request) {
-        $requestCreateDeposito = $request->only([
-            'numeroContaDestino', 'valor', 'codigoTrasacao'
-        ]);
-        $pattern = "/^DEP\d{4}$/";
-        $reqCodigoTransacao = $requestCreateDeposito['codigoTrasacao'];
+        try{
+            $token = $request->header('Authorization');
+            $this->authTokenService->validar($token);
+            $requestCreateDeposito = $request->only([
+                'numeroContaDestino', 'valor', 'codigoTrasacao'
+            ]);
+            $pattern = "/^DEP\d{4}$/";
+            $reqCodigoTransacao = $requestCreateDeposito['codigoTrasacao'];
 
-        if (!self::validarCodigo($pattern, $reqCodigoTransacao)) {
-            return response()->json(['error' => 'Formato de codigo invalido!'], 401);
-        }
+            if (!self::validarCodigo($pattern, $reqCodigoTransacao)) {
+                return response()->json(['error' => 'Formato de codigo invalido!'], 401);
+            }
 
-        $codigoTransacao = CodigosTransacoes
-            ::where('codigo', $reqCodigoTransacao)->first();
+            $codigoTransacao = CodigosTransacoes
+                ::where('codigo', $reqCodigoTransacao)->first();
 
-        if(!$codigoTransacao)
-        {
-            return response()->json(['error' => 'Codigo da transacao invalido!'], 500);
-        }
+            if(!$codigoTransacao)
+            {
+                return response()->json(['error' => 'Codigo da transacao invalido!'], 500);
+            }
 
-        $currentDate = Carbon::now();
-        $codigoDateExpiracao = $codigoTransacao['data_expiracao'];
+            $currentDate = Carbon::now();
+            $codigoDateExpiracao = $codigoTransacao['data_expiracao'];
 
-        if($currentDate > $codigoDateExpiracao)
-        {
-            return response()->json(['error' => 'Codigo expirado!'], 401);
-        }
+            if($currentDate > $codigoDateExpiracao)
+            {
+                return response()->json(['error' => 'Codigo expirado!'], 401);
+            }
 
-        $contaDestino = Conta
-            ::where('numero', $requestCreateDeposito['numeroContaDestino'])->first();
+            $contaDestino = Conta
+                ::where('numero', $requestCreateDeposito['numeroContaDestino'])->first();
 
-        if(!$contaDestino)
-        {
-                return response()->json(['error' => 'Conta de destino invalida!'], 401);
-        }
+            if(!$contaDestino)
+            {
+                    return response()->json(['error' => 'Conta de destino invalida!'], 401);
+            }
 
-        $contaOrigem = Conta::
-            where('numero', $codigoTransacao['numero_conta_origem'])->first();
-  
+            $contaOrigem = Conta::
+                where('numero', $codigoTransacao['numero_conta_origem'])->first();
+    
 
-        $agenciaContaOrigem = Agencia::
-            where('id', $contaOrigem['agencia_id'])->first();
+            $agenciaContaOrigem = Agencia::
+                where('id', $contaOrigem['agencia_id'])->first();
 
-        $agenciaContaDestino = Agencia::
-            where('id', $contaDestino['agencia_id'])->first();
-        
+            $agenciaContaDestino = Agencia::
+                where('id', $contaDestino['agencia_id'])->first();
+            
 
-        if($agenciaContaOrigem['numero'] != $agenciaContaDestino['numero'])
-        {
+            if($agenciaContaOrigem['numero'] != $agenciaContaDestino['numero'])
+            {
+                    return response()
+                    ->json(['error' =>
+                        'Nao e possivel realizar depositos entre agencias diferentes!']);
+            }
+
+            if($contaOrigem['saldo'] < $requestCreateDeposito['valor'])
+            {
                 return response()
                 ->json(['error' =>
-                     'Nao e possivel realizar depositos entre agencias diferentes!']);
-        }
+                    'Nao e possivel realizar o deposito. Saldo insuficiente!']); 
+            }
 
-        if($contaOrigem['saldo'] < $requestCreateDeposito['valor'])
-        {
+            // Salvando antes de debitar
+            $saldoOrigemAnteriorDebito = $contaOrigem['saldo'];
+
+            // Atualizando saldos
+            $contaOrigem['saldo'] -= $requestCreateDeposito['valor'];
+            $contaDestino['saldo'] += $requestCreateDeposito['valor'];
+
+            // Criando objeto transação
+            $transacao['conta_origem_id'] = $contaOrigem['id'];
+            $transacao['conta_destino_id'] = $contaDestino['id'];
+            $transacao['tipo'] = $codigoTransacao['tipo'];
+            $transacao['valor'] = $requestCreateDeposito['valor'];;
+            $transacao['saldo_origem_anterior'] = $saldoOrigemAnteriorDebito;
+            $transacao['saldo_origem_posterior']= $contaOrigem['saldo'];
+            
+            // Debitando
+            Conta::where('numero', $contaOrigem['numero'])->first()
+            ->update(['saldo' => $contaOrigem['saldo']]);
+
+            // Creditando
+            Conta::where('numero', $contaDestino['numero'])->first()
+            ->update(['saldo' => $contaDestino['saldo']]);
+
+            // Salvando
+            $this->transacao->create($transacao);
+            
             return response()
-            ->json(['error' =>
-                 'Nao e possivel realizar o deposito. Saldo insuficiente!']); 
+            ->json(['data' => [
+                        'message' => 'Foi depositado com sucesso!']
+                ]);
+        }catch(AuthTokenException $e){
+            return response()->json(['error' => $e->getMessage()], 401);
         }
-
-        // Salvando antes de debitar
-        $saldoOrigemAnteriorDebito = $contaOrigem['saldo'];
-
-        // Atualizando saldos
-        $contaOrigem['saldo'] -= $requestCreateDeposito['valor'];
-        $contaDestino['saldo'] += $requestCreateDeposito['valor'];
-
-        // Criando objeto transação
-        $transacao['conta_origem_id'] = $contaOrigem['id'];
-        $transacao['conta_destino_id'] = $contaDestino['id'];
-        $transacao['tipo'] = $codigoTransacao['tipo'];
-        $transacao['valor'] = $requestCreateDeposito['valor'];;
-        $transacao['saldo_origem_anterior'] = $saldoOrigemAnteriorDebito;
-        $transacao['saldo_origem_posterior']= $contaOrigem['saldo'];
-        
-        // Debitando
-        Conta::where('numero', $contaOrigem['numero'])->first()
-        ->update(['saldo' => $contaOrigem['saldo']]);
-
-        // Creditando
-        Conta::where('numero', $contaDestino['numero'])->first()
-        ->update(['saldo' => $contaDestino['saldo']]);
-
-        // Salvando
-        $this->transacao->create($transacao);
-        
-        return response()
-        ->json(['data' => [
-                    'message' => 'Foi depositado com sucesso!']
-               ]);
     }
 
 
     public function createTransferencia(Request $request) {
-        $requestCreateTransferencia = $request->only([
-            'numeroContaDestino', 'valor', 'codigoTrasacao'
-        ]);
-        $pattern = "/^TRANSF\d{4}$/";
-        $reqCodigoTransacao = $requestCreateTransferencia['codigoTrasacao'];
+        try{
+            $token = $request->header('Authorization');
+            $this->authTokenService->validar($token);
+            $requestCreateTransferencia = $request->only([
+                'numeroContaDestino', 'valor', 'codigoTrasacao'
+            ]);
+            $pattern = "/^TRANSF\d{4}$/";
+            $reqCodigoTransacao = $requestCreateTransferencia['codigoTrasacao'];
 
-        if (!self::validarCodigo($pattern, $reqCodigoTransacao)) {
-            return response()->json(['error' => 'Formato de codigo invalido!'], 401);
-        }
+            if (!self::validarCodigo($pattern, $reqCodigoTransacao)) {
+                return response()->json(['error' => 'Formato de codigo invalido!'], 401);
+            }
 
-        $codigoTransacao = CodigosTransacoes
-            ::where('codigo', $reqCodigoTransacao)->first();
+            $codigoTransacao = CodigosTransacoes
+                ::where('codigo', $reqCodigoTransacao)->first();
 
-        if(!$codigoTransacao)
-        {
-            return response()->json(['error' => 'Numero da conta invalido!'], 500);
-        }
+            if(!$codigoTransacao)
+            {
+                return response()->json(['error' => 'Numero da conta invalido!'], 500);
+            }
 
-        $currentDate = Carbon::now();
-        $codigoDateExpiracao = $codigoTransacao['data_expiracao'];
+            $currentDate = Carbon::now();
+            $codigoDateExpiracao = $codigoTransacao['data_expiracao'];
 
-        if($currentDate > $codigoDateExpiracao)
-        {
-            return response()->json(['error' => 'Codigo expirado!'], 401);
-        }
+            if($currentDate > $codigoDateExpiracao)
+            {
+                return response()->json(['error' => 'Codigo expirado!'], 401);
+            }
 
-        $contaDestino = Conta
-            ::where('numero', $requestCreateTransferencia['numeroContaDestino'])->first();
+            $contaDestino = Conta
+                ::where('numero', $requestCreateTransferencia['numeroContaDestino'])->first();
 
-        if(!$contaDestino)
-        {
-                return response()->json(['error' => 'Conta de destino invalida!'], 401);
-        }
+            if(!$contaDestino)
+            {
+                    return response()->json(['error' => 'Conta de destino invalida!'], 401);
+            }
 
-        $contaOrigem = Conta::
-            where('numero', $codigoTransacao['numero_conta_origem'])->first();
-  
-
-        if($contaOrigem['saldo'] < $requestCreateTransferencia['valor'])
-        {
-            return response()
-            ->json(['error' =>
-                 'Nao e possivel realizar o deposito. Saldo insuficiente!']); 
-        }
-
-        // Salvando antes de debitar
-        $saldoOrigemAnteriorDebito = $contaOrigem['saldo'];
-
-        // Atualizando saldos
-        $contaOrigem['saldo'] -= $requestCreateTransferencia['valor'];
-        $contaDestino['saldo'] += $requestCreateTransferencia['valor'];
-
-        // Criando objeto transação
-        $transacao['conta_origem_id'] = $contaOrigem['id'];
-        $transacao['conta_destino_id'] = $contaDestino['id'];
-        $transacao['tipo'] =  $codigoTransacao['tipo'];
-        $transacao['valor'] = $requestCreateTransferencia['valor'];;
-        $transacao['saldo_origem_anterior'] = $saldoOrigemAnteriorDebito;
-        $transacao['saldo_origem_posterior']= $contaOrigem['saldo'];
-        
-        // Debitando
-        Conta::where('numero', $contaOrigem['numero'])->first()
-        ->update(['saldo' => $contaOrigem['saldo']]);
-
-        // Creditando
-        Conta::where('numero', $contaDestino['numero'])->first()
-        ->update(['saldo' => $contaDestino['saldo']]);
-
-        // Salvando
-        $this->transacao->create($transacao);
-        
-        return response()
-        ->json(['data' => [
-                    'message' => 'Transferencia feita com sucesso!']
-               ]);
+            $contaOrigem = Conta::
+                where('numero', $codigoTransacao['numero_conta_origem'])->first();
     
+
+            if($contaOrigem['saldo'] < $requestCreateTransferencia['valor'])
+            {
+                return response()
+                ->json(['error' =>
+                    'Nao e possivel realizar o deposito. Saldo insuficiente!']); 
+            }
+
+            // Salvando antes de debitar
+            $saldoOrigemAnteriorDebito = $contaOrigem['saldo'];
+
+            // Atualizando saldos
+            $contaOrigem['saldo'] -= $requestCreateTransferencia['valor'];
+            $contaDestino['saldo'] += $requestCreateTransferencia['valor'];
+
+            // Criando objeto transação
+            $transacao['conta_origem_id'] = $contaOrigem['id'];
+            $transacao['conta_destino_id'] = $contaDestino['id'];
+            $transacao['tipo'] =  $codigoTransacao['tipo'];
+            $transacao['valor'] = $requestCreateTransferencia['valor'];;
+            $transacao['saldo_origem_anterior'] = $saldoOrigemAnteriorDebito;
+            $transacao['saldo_origem_posterior']= $contaOrigem['saldo'];
+            
+            // Debitando
+            Conta::where('numero', $contaOrigem['numero'])->first()
+            ->update(['saldo' => $contaOrigem['saldo']]);
+
+            // Creditando
+            Conta::where('numero', $contaDestino['numero'])->first()
+            ->update(['saldo' => $contaDestino['saldo']]);
+
+            // Salvando
+            $this->transacao->create($transacao);
+            
+            return response()
+            ->json(['data' => [
+                        'message' => 'Transferencia feita com sucesso!']
+                ]);
+        }catch(AuthTokenException $e){
+            return response()->json(['error' => $e->getMessage()], 401);
+        }
     }
 
     private function validarCodigo($pattern, $codigo){

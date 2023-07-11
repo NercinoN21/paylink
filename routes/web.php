@@ -13,8 +13,11 @@
 |
 */
 
+use App\Http\Middleware\VerifyToken;
+use  App\Models\AuthToken;
+
 $router->get('/', function () use ($router) {
-    return 'Api lumen test...';
+   return 'Api paylink...';
 });
 
 $router->group(['prefix' => 'users'], function() use ($router) {
@@ -36,6 +39,12 @@ $router->group(['prefix' => 'users'], function() use ($router) {
 $router->group(['prefix' => 'endereco'], function() use ($router) {
     $router->get('/', 'EnderecoController@listAll');
     $router->post('/', 'EnderecoController@createEndereco');
+
+        /*
+        Recurso: endereco (users)
+        endpoint: / (usuarios)
+        Verbos: GET, POST, PUT/PATCH, DELETE
+     */
 });
 
 $router->group(['prefix' => 'transacao'], function() use ($router) {

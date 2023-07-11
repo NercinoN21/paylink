@@ -7,22 +7,28 @@ use App\Models\Enderecos;
 
 use Illuminate\Support\Facades\Http;
 
+use App\Http\Auth\AuthTokenException;
+use App\Http\Auth\AuthTokenService;
+
 class EnderecoController extends Controller
 {
     
     private  $endereco;
+    private  $authTokenService;
+
     /**
      * Create a new controller instance.
      *
      * @return void
      */
-    public function __construct(Enderecos $endereco)
+    public function __construct(Enderecos $endereco, AuthTokenService $authTokenService)
     {
         $this->endereco = $endereco;
+        $this->authTokenService = $authTokenService;
     }
 
 
-    public function listAll()
+    public function listAll(Request $request)
     {
         return $this->endereco->paginate(10);
     }
@@ -32,6 +38,9 @@ class EnderecoController extends Controller
         $endereco = $request->only('cep', 'complemento', 'numero');
 
         try {
+            $token = $request->header('Authorization');
+            $this->authTokenService->validar($token);
+
             $response = Http::get("https://viacep.com.br/ws/{$endereco['cep']}/json/");
             $data = $response->json();
             
@@ -54,7 +63,8 @@ class EnderecoController extends Controller
                         'message' => "Endereco com o cep  {$endereco['cep']} nao encontrado"]
                 ]);
             }
-        
+        }catch(AuthTokenException $e){
+            return response()->json(['error' => $e->getMessage()], 401);
         } catch (\Exception $e) {
             // Erros de requisição ou de processamento
             $error = $e->getMessage();
