@@ -26,7 +26,7 @@ API REST em PHP utilizando o framework Laravel/Lumen e PHP 8.2.
 
 ### request 
     {
-        "email": "admin@example.com",
+        "email": "admin2@gmail.com",
         "password": "admin123"
     }
 ### response
